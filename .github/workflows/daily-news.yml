@@ -1,45 +1,80 @@
 name: Daily News Email
-   on:
-     schedule:
-       - cron: '0 8 * * *'  # 8 AM UTC daily (adjust for your timezone, e.g., '0 22 * * *' for 8 AM AEDT)
-     workflow_dispatch:  # Manual trigger for testing
-   jobs:
-     send-news:
-       runs-on: ubuntu-latest
-       steps:
-       - name: Check local time in Australia/Sydney
+
+on:
+  schedule:
+    # Run at 19:00 and 20:00 UTC daily to cover AEST/AEDT; we'll gate to 06:00 Sydney below
+    - cron: "0 19 * * *"
+    - cron: "0 20 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  send-news:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check local time in Australia/Sydney
         id: when
         run: |
-          # Force tzdata and check local hour in Sydney
           sudo ln -snf /usr/share/zoneinfo/Australia/Sydney /etc/localtime
           echo "LOCAL_HOUR=$(date +%H)" >> $GITHUB_ENV
-          echo "LOCAL_DATE=$(date +%F)" >> $GITHUB_ENV
           echo "Local Sydney time is $(date)"
-      
-        - name: Skip unless it's 06:00 in Sydney
+
+      - name: Skip unless it's 06:00 in Sydney
         if: env.LOCAL_HOUR != '06'
         run: |
           echo "Not 06:00 Sydney time (it's $LOCAL_HOUR:xx). Exiting."
           exit 0
-         - name: Checkout code
-           uses: actions/checkout@v4
-         - name: Set up Python
-           uses: actions/setup-python@v4
-           with:
-             python-version: '3.12'
-         - name: Install dependencies
-           run: |
-             python -m pip install --upgrade pip
-             pip install -r requirements.txt
-         - name: Update config with secrets
-           run: |
-             jq --arg newsapi "$NEWSAPI_KEY" --arg openai "$OPENAI_API_KEY" --arg gmail "$GMAIL_USER" --arg pass "$GMAIL_APP_PASSWORD" --arg recipients "$RECIPIENT_EMAILS" '
-               .newsapi_key = $newsapi |
-               .openai_api_key = $openai |
-               .gmail_user = $gmail |
-               .gmail_app_password = $pass |
-               .recipient_emails = ($recipients | split(","))
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Ensure jq is available
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+          fi
+
+      # Update config.json with secrets safely (without printing them)
+      - name: Update config with secrets
+        env:
+          NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAILS: ${{ secrets.RECIPIENT_EMAILS }} # "a@x.com,b@y.com"
+        run: |
+          # Create config.json if it doesn't exist so jq always has an input
+          [ -f config.json ] || echo '{}' > config.json
+          jq --arg newsapi "$NEWSAPI_KEY" \
+             --arg openai "$OPENAI_API_KEY" \
+             --arg gmail "$GMAIL_USER" \
+             --arg pass "$GMAIL_APP_PASSWORD" \
+             --arg recipients "$RECIPIENT_EMAILS" \
+             '
+               .newsapi_key      = $newsapi     |
+               .openai_api_key   = $openai      |
+               .gmail_user       = $gmail       |
+               .gmail_app_password = $pass      |
+               .recipient_emails = ( ($recipients // "") | split(",") | map(. | gsub("^\\s+|\\s+$"; "")) )
              ' config.json > config_temp.json && mv config_temp.json config.json
-         - name: Run news script
-           run: python main.py
-   
+
+      - name: Run news script
+        run: python main.py
+
+      - name: Clean up secrets
+        if: always()
+        run: |
+          shred -u config.json || rm -f config.json
