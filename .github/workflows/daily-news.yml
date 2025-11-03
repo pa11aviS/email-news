@@ -1,0 +1,45 @@
+name: Daily News Email
+   on:
+     schedule:
+       - cron: '0 8 * * *'  # 8 AM UTC daily (adjust for your timezone, e.g., '0 22 * * *' for 8 AM AEDT)
+     workflow_dispatch:  # Manual trigger for testing
+   jobs:
+     send-news:
+       runs-on: ubuntu-latest
+       steps:
+       - name: Check local time in Australia/Sydney
+        id: when
+        run: |
+          # Force tzdata and check local hour in Sydney
+          sudo ln -snf /usr/share/zoneinfo/Australia/Sydney /etc/localtime
+          echo "LOCAL_HOUR=$(date +%H)" >> $GITHUB_ENV
+          echo "LOCAL_DATE=$(date +%F)" >> $GITHUB_ENV
+          echo "Local Sydney time is $(date)"
+      
+        - name: Skip unless it's 06:00 in Sydney
+        if: env.LOCAL_HOUR != '06'
+        run: |
+          echo "Not 06:00 Sydney time (it's $LOCAL_HOUR:xx). Exiting."
+          exit 0
+         - name: Checkout code
+           uses: actions/checkout@v4
+         - name: Set up Python
+           uses: actions/setup-python@v4
+           with:
+             python-version: '3.12'
+         - name: Install dependencies
+           run: |
+             python -m pip install --upgrade pip
+             pip install -r requirements.txt
+         - name: Update config with secrets
+           run: |
+             jq --arg newsapi "$NEWSAPI_KEY" --arg openai "$OPENAI_API_KEY" --arg gmail "$GMAIL_USER" --arg pass "$GMAIL_APP_PASSWORD" --arg recipients "$RECIPIENT_EMAILS" '
+               .newsapi_key = $newsapi |
+               .openai_api_key = $openai |
+               .gmail_user = $gmail |
+               .gmail_app_password = $pass |
+               .recipient_emails = ($recipients | split(","))
+             ' config.json > config_temp.json && mv config_temp.json config.json
+         - name: Run news script
+           run: python main.py
+   
