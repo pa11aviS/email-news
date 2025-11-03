@@ -2,14 +2,10 @@ name: Daily News Email
 
 on:
   schedule:
-    # Run at 19:00 and 20:00 UTC daily to cover AEST/AEDT; we'll gate to 06:00 Sydney below
-    - cron: "0 18 * * *"
-    - cron: "0 19 * * *"
+    - cron: "0 18 * * *"  # 18:00 UTC = 05:00 AEDT (+11)
   workflow_dispatch: {}
-
 permissions:
   contents: read
-
 jobs:
   send-news:
     runs-on: ubuntu-latest
@@ -20,7 +16,6 @@ jobs:
           sudo ln -snf /usr/share/zoneinfo/Australia/Sydney /etc/localtime
           echo "LOCAL_HOUR=$(date +%H)" >> $GITHUB_ENV
           echo "Local Sydney time is $(date)"
-
       - name: Skip unless it's 05:00 in Sydney
         if: env.LOCAL_HOUR != '05'
         run: |
@@ -66,13 +61,11 @@ jobs:
           # Create config.json if it doesn't exist so jq always has an input
           [ -f config.json ] || echo '{}' > config.json
           jq --arg newsapi "$NEWSAPI_KEY" \
-             --arg openai "$OPENAI_API_KEY" \
              --arg gmail "$GMAIL_USER" \
              --arg pass "$GMAIL_APP_PASSWORD" \
              --arg recipients "$RECIPIENT_EMAILS" \
              '
                .newsapi_key      = $newsapi     |
-               .openai_api_key   = $openai      |
                .gmail_user       = $gmail       |
                .gmail_app_password = $pass      |
                .recipient_emails = ( ($recipients // "") | split(",") | map(. | gsub("^\\s+|\\s+$"; "")) )
