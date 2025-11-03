@@ -370,7 +370,7 @@ def main():
             sections['Sports News'].append(article)
         elif any(word in content for word in ['football', 'basketball', 'tennis', 'rugby', 'olympics', 'sports']) and not any(word in content for word in sports_keywords):
             continue  # Skip other sports
-        elif 'ai' in content or 'artificial intelligence' in content or 'machine learning' in content:
+        elif ' ai ' in content or 'artificial intelligence' in content or 'machine learning' in content:
             sections['AI News'].append(article)
         elif 'australia' in content or 'australian' in content or article['source'].lower() in ['abc news', 'sydney morning herald', 'the australian']:
             sections['Australian News'].append(article)
