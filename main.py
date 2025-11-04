@@ -82,8 +82,6 @@ def fetch_newsapi_news(api_key, query="world news", days_back=1, sources=None):
     
     return articles
 
-model_name = config['ollama_model'] or os.getenv('OLLAMA_MODEL')
-
 def summarize_news(sections, api_key):
     """Select and format news articles by sections using Ollama"""
     
@@ -413,7 +411,7 @@ def main():
     reddit_trends = get_reddit_trends()
 
     # Summarize news
-    news_summary = summarize_news(sections, config['ollama_model'])
+    news_summary = summarize_news(sections, "llama3")
 
     # Combine into full summary
     full_summary = f"""
