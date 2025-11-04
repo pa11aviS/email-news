@@ -7,7 +7,7 @@ Fetches news from RSS feeds and NewsAPI, summarizes with Ollama, and emails to G
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -62,10 +62,13 @@ def fetch_newsapi_news(
     page_size=15,
 ):
     base = "https://newsapi.org/v2/everything"
-    from_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+    now = datetime.now(timezone.utc)
+    to_dt = now - timedelta(hours=24)
+    from_date = to_dt - timedelta(days=days_back)
     params = {
         "q": query or "",
         "from": from_date,
+        "to":   to_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "sortBy": sort_by,
         "language": language,
         "pageSize": min(page_size, 100),
@@ -420,16 +423,40 @@ def send_email(summary, config):
         print(f"Email sent successfully to {len(config['recipient_emails'])} recipients.")
     except Exception as e:
         print(f"Error sending email: {e}")
+        
+def validate_source_ids(api_key, csv_ids):
+    try:
+        r = requests.get(
+            "https://newsapi.org/v2/top-headlines/sources",
+            headers={"X-Api-Key": api_key},
+            timeout=20,
+        )
+        r.raise_for_status()
+        valid = {s["id"] for s in r.json().get("sources", []) if s.get("id")}
+        req = [s.strip() for s in csv_ids.split(",") if s.strip()]
+        bad = [s for s in req if s not in valid]
+        good = [s for s in req if s in valid]
+        if bad:
+            print(f"[WARN] Invalid NewsAPI IDs removed: {', '.join(bad)}")
+        return ",".join(good)
+    except Exception as e:
+        print(f"[WARN] Could not validate source IDs: {e}")
+        return csv_ids
 
 def main():
     config = load_config()
     
     # Fetch news by sections
     sections = {}
+
+    major_ids = validate_source_ids(
+    config['newsapi_key'],
+    'bbc-news,nytimes,the-guardian,al-jazeera-english,associated-press,politico,reuters,the-washington-post,bloomberg,cnn,abc-news-au,sydney-morning-herald,the-australian,australian-financial-review,google-news-au,news-com-au,techcrunch,hacker-news,wired,recode,techradar,the-next-web,the-atlantic,new-yorker,new-york-magazine,national-geographic,new-scientist,buzzfeed,mtv-news,mashable,reddit-r-all,the-lad-bible'
+    )
     
     sections['AI News'] = fetch_newsapi_news(
         config['newsapi_key'],
-        query='(AI OR "Artificial Intelligence") AND (release OR announcement OR product)',
+        query='("machine learning" OR "artificial intelligence") AND (release OR announcement OR product)',
         days_back=1
     )
 
@@ -496,9 +523,9 @@ def main():
         sports_keywords = ['cricket', 'f1', 'formula 1', 'athletics', 'soccer', 'running', 'marathon']
         if any(word in content for word in sports_keywords):
             sections['Sports News'].append(article)
-        elif any(word in content for word in ['football', 'basketball', 'tennis', 'rugby', 'olympics', 'sports']) and not any(word in content for word in sports_keywords):
+        elif any(word in content for word in ['football', 'basketball', 'rugby', 'sports']) and not any(word in content for word in sports_keywords):
             continue  # Skip other sports
-        elif 'ai' in content or 'artificial intelligence' in content or 'machine learning' in content:
+        elif 'artificial intelligence' in content or 'machine learning' in content:
             sections['AI News'].append(article)
         elif 'australia' in content or 'australian' in content or article['source'].lower() in ['abc news', 'sydney morning herald', 'the australian']:
             sections['Australian News'].append(article)
@@ -506,6 +533,31 @@ def main():
             sections['Trending on Social Media'].append(article)
         else:
             sections['Major International News'].append(article)
+
+    SECTION_ORDER = [
+    'AI News',
+    'Major International News',
+    'Australian News',
+    'Sports News',
+    'Tech News',
+    'Long-Form Articles',
+    'Trending on Social Media',
+    ]
+    for name in SECTION_ORDER:
+        sections.setdefault(name, [])
+
+    # Build a simple block listing missing sections
+    missing = [name for name in SECTION_ORDER if len(sections[name]) == 0]
+    missing_html = ""
+    if missing:
+        missing_html = (
+            "<div style='background:#fff7e6;border:1px solid #ffe7ba;"
+            "padding:16px;border-radius:8px;margin:20px 0;'>"
+            "<h2 style='margin:0 0 8px 0;'>Sections with no items</h2>"
+            "<ul style='margin:0;padding-left:18px;'>"
+            + "".join(f"<li><strong>{name}</strong>: 0 articles found</li>" for name in missing)
+            + "</ul></div>"
+        )
     
     # Check if any articles
     total_articles = sum(len(arts) for arts in sections.values())
@@ -527,6 +579,7 @@ def main():
         <p><strong>Weather in Eleebana, NSW:</strong> {weather}</p>
     </div>
     {news_summary}
+    {missing_html}
     <div style="background-color: #e8f4f8; padding: 20px; margin-bottom: 30px; border-radius: 8px;">
         <p><strong>Trending on Reddit (Top Today):</strong> {reddit_trends}</p>
     </div>
