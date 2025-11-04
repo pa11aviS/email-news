@@ -16,8 +16,6 @@ import requests
 import ollama
 import xml.etree.ElementTree as ET
 from urllib.request import urlopen
-import json
-import os
 import markdown
 
 def load_config():
@@ -54,33 +52,51 @@ def fetch_rss_news(rss_urls, days_back=1):
     
     return articles
 
-def fetch_newsapi_news(api_key, query="world news", days_back=1, sources=None):
-    """Fetch news from NewsAPI"""
-    articles = []
+def fetch_newsapi_news(
+    api_key,
+    query=None,
+    days_back=1,
+    sources=None,      # comma-separated NewsAPI source IDs
+    language="en",
+    sort_by="publishedAt",
+    page_size=15,
+):
+    base = "https://newsapi.org/v2/everything"
     from_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
-    
+    params = {
+        "q": query or "",
+        "from": from_date,
+        "sortBy": sort_by,
+        "language": language,
+        "pageSize": min(page_size, 100),
+    }
     if sources:
-        url = f"https://newsapi.org/v2/top-headlines?sources={sources}&pageSize=15&apiKey={api_key}"
-    else:
-        url = f"https://newsapi.org/v2/everything?q={query}&from={from_date}&sortBy=publishedAt&pageSize=15&apiKey={api_key}"
-    
+        params["sources"] = sources  # <-- keep using IDs, not domains
+
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
-        for article in data.get('articles', []):
-            articles.append({
-                'title': article['title'],
-                'content': article.get('content') or article.get('description') or '',
-                'url': article['url'],
-                'source': article['source']['id'],
-                'published': article['publishedAt']
+        r = requests.get(base, params=params, headers={"X-Api-Key": api_key}, timeout=20)
+        if r.status_code == 429:
+            print("NewsAPI rate limit hit (429). Try reducing calls or upgrading your plan.")
+            return []
+        if r.status_code == 400:
+            print(f"NewsAPI 400: {r.text}")  # often indicates a bad source ID
+            return []
+        r.raise_for_status()
+        data = r.json()
+        out = []
+        for a in data.get("articles", []):
+            src = a.get("source") or {}
+            out.append({
+                "title": a.get("title") or "",
+                "content": a.get("content") or (a.get("description") or ""),
+                "url": a.get("url"),
+                "source": src.get("name") or src.get("id") or "Unknown",
+                "published": a.get("publishedAt"),
             })
+        return out
     except Exception as e:
         print(f"Error fetching from NewsAPI: {e}")
-    
-    return articles
+        return []
 
 def summarize_news(sections, model_name, per_section_limit=7, per_section_pool=12):
     """
@@ -411,26 +427,56 @@ def main():
     # Fetch news by sections
     sections = {}
     
-    # AI News - focus on AI with releases/announcements
-    sections['AI News'] = fetch_newsapi_news(config['newsapi_key'], query='(AI OR "Artificial Intelligence") AND (release OR announcement OR product)', days_back=1)
-    
-    # Major International News - major sources
-    sections['Major International News'] = fetch_newsapi_news(config['newsapi_key'], query='world news OR international OR politics', days_back=1, sources='bbc-news,nytimes,the-guardian,al-jazeera-english,associated-press,politico,reuters,the-washington-post,bloomberg,cnn')
-    
-    # Australian News - major Australian sources
-    sections['Australian News'] = fetch_newsapi_news(config['newsapi_key'], query='Australia', days_back=1, sources='abc-news-au,sydney-morning-herald,the-australian, australian-financial-review,google-news-au,news-com-au')
+    sections['AI News'] = fetch_newsapi_news(
+        config['newsapi_key'],
+        query='(AI OR "Artificial Intelligence") AND (release OR announcement OR product)',
+        days_back=1
+    )
 
-    # Sports News - cricket, F1, athletics, soccer, running
-    sections['Sports News'] = fetch_newsapi_news(config['newsapi_key'], query='cricket OR "F1" OR athletics OR soccer OR running', days_back=1)
+    # Major International News (IDs only)
+    sections['Major International News'] = fetch_newsapi_news(
+        config['newsapi_key'],
+        days_back=1,
+        sources='bbc-news,nytimes,the-guardian,al-jazeera-english,associated-press,politico,reuters,the-washington-post,bloomberg,cnn'
+    )
 
-    # Tech News - from specified sources
-    sections['Tech News'] = fetch_newsapi_news(config['newsapi_key'], query='technology OR tech', days_back=1, sources='techcrunch,hacker-news,wired,recode,techradar,the-next-web')
+    # Australian News (IDs only — remove the stray space)
+    sections['Australian News'] = fetch_newsapi_news(
+        config['newsapi_key'],
+        query='Australia',
+        days_back=1,
+        sources='abc-news-au,sydney-morning-herald,the-australian,australian-financial-review,google-news-au,news-com-au'
+    )
 
-    # Long-Form Articles - from specified sources
-    sections['Long-Form Articles'] = fetch_newsapi_news(config['newsapi_key'], query='in-depth OR analysis OR long-form', days_back=1, sources='the-atlantic,new-yorker,new-york-magazine,national-geographic,new-scientist')
+    # Sports News
+    sections['Sports News'] = fetch_newsapi_news(
+        config['newsapi_key'],
+        query='cricket OR "F1" OR athletics OR soccer OR running',
+        days_back=1
+    )
+
+    # Tech News
+    sections['Tech News'] = fetch_newsapi_news(
+        config['newsapi_key'],
+        query='technology OR tech',
+        days_back=1,
+        sources='techcrunch,hacker-news,wired,recode,techradar,the-next-web'
+    )
+
+    # Long-Form
+    sections['Long-Form Articles'] = fetch_newsapi_news(
+        config['newsapi_key'],
+        days_back=1,
+        sources='the-atlantic,new-yorker,new-york-magazine,national-geographic,new-scientist'
+    )
 
     # Trending on Social Media
-    sections['Trending on Social Media'] = fetch_newsapi_news(config['newsapi_key'], query='trending OR viral', days_back=1, sources='buzzfeed,mtv-news,mashable,reddit-r-all,the-lad-bible')
+    sections['Trending on Social Media'] = fetch_newsapi_news(
+        config['newsapi_key'],
+        query='trending OR viral',
+        days_back=1,
+        sources='buzzfeed,mtv-news,mashable,reddit-r-all,the-lad-bible'
+    )
     
     # Add RSS for more sources (major publications as fallback)
     rss_articles = fetch_rss_news([
