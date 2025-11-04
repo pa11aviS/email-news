@@ -418,7 +418,6 @@ def main():
     <div style="background-color: #e8f4f8; padding: 20px; margin-bottom: 30px; border-radius: 8px;">
         <h2 style="color: #2c3e50; margin-top: 0;">Today's Overview</h2>
         <p><strong>Weather in Eleebana, NSW:</strong> {weather}</p>
-        <p><strong>Trending on Reddit (Top Today):</strong> {reddit_trends}</p>
     </div>
     {news_summary}
     <div style="background-color: #e8f4f8; padding: 20px; margin-bottom: 30px; border-radius: 8px;">
