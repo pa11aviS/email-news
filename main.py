@@ -82,78 +82,139 @@ def fetch_newsapi_news(api_key, query="world news", days_back=1, sources=None):
     
     return articles
 
-def summarize_news(sections, api_key):
-    """Select and format news articles by sections using Ollama"""
-    
-    # Collect all articles into a numbered list
-    all_articles = []
-    article_map = {}
-    counter = 1
-    for section_name, articles in sections.items():
-        for art in articles[:10]:  # Limit per section
-            all_articles.append(f"{counter}. Title: {art['title']}\n   Content: {art['content'][:200]}\n   Source: {art['source']}")
-            article_map[counter] = art
-            counter += 1
-    
-    article_list = "\n\n".join(all_articles)
-    
-    prompt_select = f"""You are a journalist curating an email newsletter for a highly-educated professional audience.
-
-    Here is a numbered list of articles. For each section, select the numbers of articles that fit the criteria. Select 5-7 per section. Make sure there is relevant content for each section.
-
-    Sections:
-    - AI NEWS: Articles about artificial intelligence, machine learning, AI releases.
-    - MAJOR INTERNATIONAL NEWS: Global news, politics, world events.
-    - AUSTRALIAN NEWS: News from or about Australia.
-    - SPORTS NEWS: Cricket, F1, athletics, soccer, running only.
-    - TECH NEWS: Technology, gadgets, software.
-    - LONG-FORM ARTICLES: In-depth analysis, features.
-    - TRENDING ON SOCIAL MEDIA: Viral topics, trends.
-
-    Output ONLY in this format:
-    AI NEWS: 1,3,5
-    MAJOR INTERNATIONAL NEWS: 2,4
-    ...
-
-    No extra text.
-
-    Articles:
-    {article_list}
+def summarize_news(sections, model_name, per_section_limit=7, per_section_pool=12):
     """
-    
-    try:
-        response = ollama.chat(
-            model=api_key,
-            messages=[{"role": "user", "content": prompt_select}]
-        )
-        selection_text = response['message']['content'].strip()
-        
-        # Parse selections
-        selected_articles = {}
-        for line in selection_text.split('\n'):
-            if ':' in line:
-                section, nums = line.split(':', 1)
-                section = section.strip().upper()
-                nums = [int(n.strip()) for n in nums.split(',') if n.strip().isdigit()]
-                selected_articles[section] = [article_map[n] for n in nums if n in article_map]
-        
-        # Format as HTML
-        html = ""
-        for section in ['AI NEWS', 'MAJOR INTERNATIONAL NEWS', 'AUSTRALIAN NEWS', 'SPORTS NEWS', 'TECH NEWS', 'LONG-FORM ARTICLES', 'TRENDING ON SOCIAL MEDIA']:
-            if section in selected_articles and selected_articles[section]:
-                html += f"<h2>{section}</h2><ul>"
-                for art in selected_articles[section][:7]:
-                    title = art['title']
-                    summary = art['content'][:300]  # Use existing summary
-                    link = art['url']
-                    source = art['source']
-                    html += f"<li><strong>{title}</strong>: {summary} <a href='{link}'>[{source}]</a></li>"
-                html += "</ul>"
-        
-        return html
-    except Exception as e:
-        print(f"Error with Ollama selection: {e}")
-        return "<h1>Error generating summary</h1>"
+    Curate and format news per section WITHOUT cross-section mixing.
+    Keeps the original "guides" for how to select items.
+    Prompts Ollama once per section with only that section's candidates.
+    """
+
+    SECTION_ORDER = [
+        'AI News',
+        'Major International News',
+        'Australian News',
+        'Sports News',
+        'Tech News',
+        'Long-Form Articles',
+        'Trending on Social Media',
+    ]
+
+    # Your original guides preserved verbatim
+    SECTION_GUIDES = {
+        'AI News': "AI NEWS: Articles about artificial intelligence, machine learning, AI releases.",
+        'Major International News': "MAJOR INTERNATIONAL NEWS: Global news, politics, world events.",
+        'Australian News': "AUSTRALIAN NEWS: News from or about Australia.",
+        'Sports News': "SPORTS NEWS: Cricket, F1, athletics, soccer, running only.",
+        'Tech News': "TECH NEWS: Technology, gadgets, software.",
+        'Long-Form Articles': "LONG-FORM ARTICLES: In-depth analysis, features.",
+        'Trending on Social Media': "TRENDING ON SOCIAL MEDIA: Viral topics, trends.",
+    }
+
+    # Build a single "guides" block that we show in every section prompt
+    all_guides_text = "\n".join([
+        "- " + SECTION_GUIDES[name] for name in SECTION_ORDER
+    ])
+
+    def _to_dt(x):
+        # Best-effort sort by published desc
+        val = x.get('published')
+        if not val:
+            return datetime.min
+        try:
+            return datetime.fromisoformat(val.replace("Z", "+00:00"))
+        except Exception:
+            return datetime.min
+
+    def _format_article_for_prompt(idx, art):
+        src = (art.get('source') or 'Unknown')
+        title = (art.get('title') or '').strip()
+        content = (art.get('content') or '').strip()
+        return f"{idx}. Title: {title}\n   Content: {content[:220]}\n   Source: {src}"
+
+    def _pick_indices_with_ollama(section_name, numbered_block):
+        """
+        Ask for comma-separated numbers only, but include the ORIGINAL guides block
+        so the model has the same criteria text you used before.
+        Crucially: we tell it it can ONLY choose from THIS section's list.
+        """
+        prompt = f"""You are a journalist curating an email newsletter for a highly-educated professional audience.
+
+Here are the section selection guides (for reference, unchanged from the original code):
+{all_guides_text}
+
+You are curating ONLY this section now: {section_name}
+
+Below is a numbered list of articles that ALREADY belong to {section_name}. 
+Select the best {min(per_section_limit, 7)} by returning ONLY a comma-separated list of numbers (e.g. "1,3,5").
+Do NOT add any extra text. Do NOT reference other sections. Only pick from the numbers shown.
+
+Articles:
+{numbered_block}
+"""
+        try:
+            resp = ollama.chat(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            raw = resp["message"]["content"].strip()
+            # Parse comma-separated integers only
+            out = []
+            for tok in raw.replace("\n", ",").split(","):
+                tok = tok.strip()
+                if tok.isdigit():
+                    out.append(int(tok))
+            return out
+        except Exception:
+            return []
+
+    html_parts = []
+
+    for section_name in SECTION_ORDER:
+        arts = sections.get(section_name, []) or []
+        if not arts:
+            continue
+
+        # Sort newest first, then take a manageable pool
+        arts_sorted = sorted(arts, key=_to_dt, reverse=True)
+        pool = arts_sorted[:per_section_pool]
+
+        # Build the numbered list just for THIS section
+        numbered_lines = []
+        local_map = {}
+        for i, art in enumerate(pool, start=1):
+            numbered_lines.append(_format_article_for_prompt(i, art))
+            local_map[i] = art
+        numbered_block = "\n\n".join(numbered_lines)
+
+        # Ask Ollama to pick indices — but ONLY from this section's pool
+        picks = _pick_indices_with_ollama(section_name, numbered_block)
+
+        # Keep valid, unique indices; fallback to top-N if model returns junk/empty
+        seen = set()
+        chosen = []
+        for i in picks:
+            if i in local_map and i not in seen:
+                chosen.append(i)
+                seen.add(i)
+
+        if not chosen:
+            chosen = list(range(1, min(len(pool), per_section_limit) + 1))
+
+        # Render HTML for this section
+        section_html = [f"<h2>{section_name.upper()}</h2>", "<ul>"]
+        for i in chosen[:per_section_limit]:
+            art = local_map[i]
+            title = (art.get('title') or '').strip()
+            summary = (art.get('content') or '').strip()[:300]
+            link = art.get('url') or '#'
+            source = (art.get('source') or 'Unknown')
+            section_html.append(
+                f"<li><strong>{title}</strong>: {summary} <a href='{link}'>[{source}]</a></li>"
+            )
+        section_html.append("</ul>")
+        html_parts.append("\n".join(section_html))
+
+    return "\n\n".join(html_parts)
 
 def get_weather(config):
     """Get weather forecast for Eleebana NSW from BOM (today and tomorrow)"""
