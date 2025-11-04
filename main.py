@@ -135,22 +135,22 @@ def summarize_news(sections, model_name, per_section_limit=7, per_section_pool=1
     ])
 
     def _to_dt(x):
-    val = x.get('published')
-    if not val:
-        return 0.0
-    try:
-        s = str(val)
-        # Handle 'Z' and offsets
-        if s.endswith('Z'):
-            dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
-        else:
-            dt = datetime.fromisoformat(s)
-        # Coerce naive → UTC
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.timestamp()
-    except Exception:
-        return 0.0
+        val = x.get('published')
+        if not val:
+            return 0.0
+        try:
+            s = str(val)
+            # Handle 'Z' and offsets
+            if s.endswith('Z'):
+                dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+            else:
+                dt = datetime.fromisoformat(s)
+            # Coerce naive → UTC
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except Exception:
+            return 0.0
 
     def _format_article_for_prompt(idx, art):
         src = (art.get('source') or 'Unknown')
