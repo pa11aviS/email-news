@@ -411,7 +411,7 @@ def main():
     reddit_trends = get_reddit_trends()
 
     # Summarize news
-    news_summary = summarize_news(sections, config['ollama_model'])
+    news_summary = summarize_news(sections, config['llama3'])
 
     # Combine into full summary
     full_summary = f"""
