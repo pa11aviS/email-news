@@ -38,14 +38,14 @@ def fetch_rss_news(rss_urls, days_back=1):
             for entry in feed.entries:
                 published = entry.get('published_parsed')
                 if published:
-                    pub_date = datetime(*published[:6])
+                    pub_date = datetime(*published[:6], tzinfo=timezone.utc)
                     if pub_date >= cutoff_date:
                          articles.append({
                              'title': entry.title,
                              'content': entry.get('summary') or entry.get('description') or '',
                              'url': entry.link,
                              'source': feed.feed.title if hasattr(feed.feed, 'title') else url,
-                             'published': pub_date.isoformat()
+                             'published': pub_date.isoformat()   # now ISO with +00:00
                          })
         except Exception as e:
             print(f"Error fetching RSS from {url}: {e}")
@@ -135,14 +135,22 @@ def summarize_news(sections, model_name, per_section_limit=7, per_section_pool=1
     ])
 
     def _to_dt(x):
-        # Best-effort sort by published desc
-        val = x.get('published')
-        if not val:
-            return datetime.min
-        try:
-            return datetime.fromisoformat(val.replace("Z", "+00:00"))
-        except Exception:
-            return datetime.min
+    val = x.get('published')
+    if not val:
+        return 0.0
+    try:
+        s = str(val)
+        # Handle 'Z' and offsets
+        if s.endswith('Z'):
+            dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+        else:
+            dt = datetime.fromisoformat(s)
+        # Coerce naive → UTC
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except Exception:
+        return 0.0
 
     def _format_article_for_prompt(idx, art):
         src = (art.get('source') or 'Unknown')
