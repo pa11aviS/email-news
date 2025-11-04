@@ -82,7 +82,7 @@ def fetch_newsapi_news(api_key, query="world news", days_back=1, sources=None):
     
     return articles
 
-model_name = config.get('ollama_model') or os.getenv('OLLAMA_MODEL')
+model_name = config['ollama_model'] or os.getenv('OLLAMA_MODEL')
 
 def summarize_news(sections, api_key):
     """Select and format news articles by sections using Ollama"""
