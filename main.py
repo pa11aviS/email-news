@@ -459,7 +459,7 @@ def main():
 
     major_ids = validate_source_ids(
     config['newsapi_key'],
-    'bbc-news,nytimes,the-guardian,al-jazeera-english,associated-press,politico,reuters,the-washington-post,bloomberg,cnn,abc-news-au,sydney-morning-herald,the-australian,australian-financial-review,google-news-au,news-com-au,techcrunch,hacker-news,wired,recode,techradar,the-next-web,the-atlantic,new-yorker,new-york-magazine,national-geographic,new-scientist,buzzfeed,mtv-news,mashable,reddit-r-all,the-lad-bible'
+    'bbc-news,al-jazeera-english,associated-press,politico,reuters,the-washington-post,bloomberg,cnn,abc-news-au,australian-financial-review,google-news-au,news-com-au,techcrunch,hacker-news,wired,recode,techradar,the-next-web,new-york-magazine,national-geographic,new-scientist,buzzfeed,mtv-news,mashable,reddit-r-all,the-lad-bible'
     )
     
     sections['AI News'] = fetch_newsapi_news(
@@ -480,7 +480,7 @@ def main():
         config['newsapi_key'],
         query='Australia',
         days_back=1,
-        sources='abc-news-au,sydney-morning-herald,the-australian,australian-financial-review,google-news-au,news-com-au'
+        sources='abc-news-au,australian-financial-review,google-news-au,news-com-au'
     )
 
     # Sports News
@@ -502,7 +502,7 @@ def main():
     sections['Long-Form Articles'] = fetch_newsapi_news(
         config['newsapi_key'],
         days_back=1,
-        sources='the-atlantic,new-yorker,new-york-magazine,national-geographic,new-scientist'
+        sources='new-york-magazine,national-geographic,new-scientist'
     )
 
     # Trending on Social Media
