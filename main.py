@@ -3,7 +3,7 @@
 Daily News Summarizer and Emailer
 Fetches news from RSS feeds and NewsAPI, summarizes with Ollama, and emails to Gmail.
 """
-
+import re, html  # at top
 import json
 import os
 import sys
@@ -101,6 +101,31 @@ def fetch_newsapi_news(
         print(f"Error fetching from NewsAPI: {e}")
         return []
 
+def simple_clean(text: str, max_len: int = 300) -> str:
+    if not text:
+        return ""
+    t = str(text)
+
+    # kill NewsAPI tails like "[+1234 chars]"
+    t = re.sub(r"\s*\[\+\d+\s+chars\]\s*$", "", t)
+
+    # nuke any simple HTML tags (good enough for summaries)
+    t = re.sub(r"<[^>]+>", " ", t)
+
+    # flatten bullets/newlines to em-dashes
+    t = t.replace("•", " — ").replace("\u2022", " — ")
+    t = re.sub(r"\s*\n+\s*", " — ", t)
+
+    # collapse whitespace
+    t = " ".join(t.split())
+
+    # trim
+    if len(t) > max_len:
+        t = t[:max_len].rstrip() + "…"
+
+    # escape for safe HTML insertion
+    return html.escape(t)
+
 def summarize_news(sections, model_name, per_section_limit=7, per_section_pool=12):
     """
     Curate and format news per section WITHOUT cross-section mixing.
@@ -153,9 +178,9 @@ def summarize_news(sections, model_name, per_section_limit=7, per_section_pool=1
             return 0.0
 
     def _format_article_for_prompt(idx, art):
-        src = (art.get('source') or 'Unknown')
-        title = (art.get('title') or '').strip()
-        content = (art.get('content') or '').strip()
+        src = html.escape(art.get('url') or '#')
+        title  = html.escape((art.get('title') or '').strip())
+        content = simple_clean(art.get('content') or '')
         return f"{idx}. Title: {title}\n   Content: {content[:220]}\n   Source: {src}"
 
     def _pick_indices_with_ollama(section_name, numbered_block):
