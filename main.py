@@ -164,12 +164,13 @@ def summarize_news(sections, model_name, per_section_limit=7, per_section_pool=1
         so the model has the same criteria text you used before.
         Crucially: we tell it it can ONLY choose from THIS section's list.
         """
-        prompt = f"""You are a journalist curating an email newsletter for a highly-educated professional audience.
+        prompt = f"""You are a journalist curating an email newsletter for a highly-educated professional audience. Only select articles that are interesting and newsworthy.
 
 Here are the section selection guides (for reference, unchanged from the original code):
 {all_guides_text}
 
 You are curating ONLY this section now: {section_name}
+STRICT RULE: Exclude any items that are off-topic for this section (e.g., exclude Australian items from International; exclude non-AI items from AI) and any items that look like advertisements. Do not include duplicates (check for identical or very close headlines and content).
 
 Below is a numbered list of articles that ALREADY belong to {section_name}. 
 Select the best {min(per_section_limit, 7)} by returning ONLY a comma-separated list of numbers (e.g. "1,3,5").
