@@ -2,3 +2,5 @@ requests
 feedparser
 ollama
 markdown
+html
+re
